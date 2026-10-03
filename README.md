@@ -42,5 +42,21 @@ Hierarchical clustering and k-means with the gap statistic. Clustering without l
 ## Tools
 R, R Markdown, limma, CMA, glmnet, randomForest, e1071, ggplot2
 
+## Reproducing the Analysis
+
+Install the required R packages:
+
+```r
+# CRAN packages
+install.packages(c("tidyverse", "knitr", "kableExtra", "patchwork", "gridExtra",
+                   "ggplotify", "UpSetR", "e1071", "glmnet", "randomForest",
+                   "clusterGenomics"))
+
+# Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install(c("Biobase", "multtest", "limma", "CMA"))
+```
+
+Then open any `.Rmd` file in the `codes` folder in RStudio and click **Knit**. The prostate data are downloaded automatically from the authors' website.
 ## Author
-Maryam Shojaei Shahrokhabadi · [linkedin.com/in/maryam-shojaei-210740250] · [maryam.shojaei.ee@gmail.com]
+Maryam Shojaei Shahrokhabadi · [LinkedIn](https://www.linkedin.com/in/maryam-shojaei-210740250)· [maryam.shojaei.ee@gmail.com]
