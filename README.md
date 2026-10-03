@@ -25,7 +25,7 @@ Both datasets are well-known benchmarks, used in Efron & Hastie, [*Computer Age 
 **Objective:** Identify genes that are differentially expressed between control and cancer subjects.
 
 To identify genes that differ between cancer patients and controls, we compared a classical gene-by-gene test (Wilcoxon rank-sum) with limma, which also fits a model per gene but uses empirical Bayes moderation to borrow information across genes. Both methods agreed on 18 genes, 8 of which also showed large fold changes (|log₂FC| > 0.75).
-[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/01_differential_expression.html) · [View the code →](code/01_differential_expression.Rmd)
+[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/01_differential_expression.html) · [View the code →](codes/01_differential_expression.Rmd)
 
 ### 2. Predictive Modelling (leukemia data)
 Single-gene logistic regression compared with supervised principal components (SPCA). SPCA reduced the misclassification error from 7% to 3%.
