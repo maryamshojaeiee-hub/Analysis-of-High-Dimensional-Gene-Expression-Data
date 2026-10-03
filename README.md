@@ -36,8 +36,8 @@ To develop a small set of genes that distinguishes AML from ALL, we compared fiv
 [Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/03_gene_signature.html) · [View the code →](code/03_gene_signature.Rmd)
 
 ### 4. Cluster Analysis (leukemia data)
-Hierarchical clustering and k-means with the gap statistic. Clustering without labels largely recovered the two leukemia subtypes.
-[Read the full report →](04_cluster_analysis.md)
+We used hierarchical clustering and k-means clustering on the 100 most variable genes to see whether the patients naturally separated into different groups, without using their known leukemia types. The gap statistic indicated that two clusters were optimal. K-means then identified two groups of 26 and 46 patients, closely corresponding to the actual numbers of AML (25) and ALL (47) patients. This suggests that leukemia subtype is the main source of variation in the gene expression data.
+[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/04_cluster_analysis.html) · [View the code →](code/04_cluster_analysis.Rmd)
 
 ## Tools
 R, R Markdown, limma, CMA, glmnet, randomForest, e1071, ggplot2
