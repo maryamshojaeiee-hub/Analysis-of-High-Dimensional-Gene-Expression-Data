@@ -27,9 +27,9 @@ Both datasets are well-known benchmarks, used in Efron & Hastie, [*Computer Age 
 To identify genes that differ between cancer patients and controls, we compared a classical gene-by-gene test (Wilcoxon rank-sum) with limma, which also fits a model per gene but uses empirical Bayes moderation to borrow information across genes. Both methods agreed on 18 genes, 8 of which also showed large fold changes (|log₂FC| > 0.75).
 [Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/01_differential_expression.html) · [View the code →](codes/01_differential_expression.Rmd)
 
-### 2. Predictive Modelling (leukemia data)
-Single-gene logistic regression compared with supervised principal components (SPCA). SPCA reduced the misclassification error from 7% to 3%.
-[Read the full report →](02_predictive_modelling.md)
+
+### 2. Predictive Modelling of Leukemia Subtype (leukemia data)
+To predict whether a patient has AML or ALL from gene expression, we first fitted a separate logistic regression model for each gene and evaluated the best single-gene predictors. To use information from several correlated genes at once, we then applied supervised principal components (SPCA): the top-ranked genes were summarised by their first principal component, which was used as the predictor in a logistic model. SPCA reduced the misclassification error from 7% for the best single gene to 3%, with 96% sensitivity and 98% specificity.[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/02_predictive_modelling.html) · [View the code →](code/02_predictive_modelling.Rmd)
 
 ### 3. Gene Signature for Classification (leukemia data)
 Comparison of LDA, DLDA, SVM, LASSO and Random Forest with cross-validation. A 23-gene signature with DLDA achieved a 2% error rate.
