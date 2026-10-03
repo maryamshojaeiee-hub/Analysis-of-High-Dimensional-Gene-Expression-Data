@@ -43,4 +43,4 @@ Hierarchical clustering and k-means with the gap statistic. Clustering without l
 R, R Markdown, limma, CMA, glmnet, randomForest, e1071, ggplot2
 
 ## Author
-Maryam Shojaei Shahrokhabadi · [LinkedIn URL] · [Email]
+Maryam Shojaei Shahrokhabadi · [linkedin.com/in/maryam-shojaei-210740250] · [maryam.shojaei.ee@gmail.com]
