@@ -32,8 +32,8 @@ To identify genes that differ between cancer patients and controls, we compared 
 To predict whether a patient has AML or ALL from gene expression, we first fitted a separate logistic regression model for each gene and evaluated the best single-gene predictors. To use information from several correlated genes at once, we then applied supervised principal components (SPCA): the top-ranked genes were summarised by their first principal component, which was used as the predictor in a logistic model. SPCA reduced the misclassification error from 7% for the best single gene to 3%, with 96% sensitivity and 98% specificity.[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/02_predictive_modelling.html) · [View the code →](code/02_predictive_modelling.Rmd)
 
 ### 3. Gene Signature for Classification (leukemia data)
-Comparison of LDA, DLDA, SVM, LASSO and Random Forest with cross-validation. A 23-gene signature with DLDA achieved a 2% error rate.
-[Read the full report →](03_gene_signature.md)
+To develop a small set of genes that distinguishes AML from ALL, we compared five classifiers (LDA, DLDA, SVM, LASSO and Random Forest) using Monte Carlo cross-validation, with gene selection repeated inside each training set to avoid selection bias. DLDA performed best, with a cross-validated error of about 2.5% using 30 genes, while LDA became unstable as genes were added. Genes selected in at least half of the cross-validation splits formed a final 23-gene signature.
+[Read the full report →](https://maryamshojaeiee-hub.github.io/Analysis-of-High-Dimensional-Gene-Expression-Data/reports/03_gene_signature.html) · [View the code →](code/03_gene_signature.Rmd)
 
 ### 4. Cluster Analysis (leukemia data)
 Hierarchical clustering and k-means with the gap statistic. Clustering without labels largely recovered the two leukemia subtypes.
