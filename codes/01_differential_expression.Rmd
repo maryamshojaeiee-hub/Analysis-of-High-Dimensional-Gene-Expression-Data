@@ -1,0 +1,307 @@
+---
+title: "01_differential_expression"
+author: "Maryam Shojaei Shahrokhabadi"
+date: "2026-01-07"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r libraries, include=TRUE, message=FALSE, error=FALSE}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(UpSetR)
+library(patchwork)
+library(ggplotify)
+library(gridExtra)
+library(grid)
+library(knitr)
+library(kableExtra)
+library(Biobase)
+library(multtest, verbose = FALSE)
+library(limma)
+library(CMA)
+library(e1071)
+library(glmnet)
+library(randomForest)
+library(clusterGenomics)
+```
+
+## 1. Differential expression analysis
+
+
+
+```{r setup1, include=TRUE}
+data_filtered <- read.csv("http://web.stanford.edu/~hastie/CASI_files/DATA/prostmat.csv")
+
+gene_data <- data.frame(Expression = as.numeric(data_filtered[10, ]),
+                        Group = c(rep("Control", 50), rep("Cancer", 52)))
+
+```
+
+
+### 1.1 Data exploration
+
+
+
+```{r, fig.width=5, fig.height=3, out.width="70%", fig.align='center', warning=FALSE}
+ggplot(gene_data, aes(x = Group, y = Expression, fill = Group)) +
+  geom_boxplot() +
+  labs(
+    x = "Group",
+    y = "Expression"
+  ) +
+  theme_minimal()
+```
+
+
+
+```{r setup3, include=TRUE}
+gene_vars <- apply(data_filtered, 1, var, na.rm = TRUE)
+top_6_indices <- order(gene_vars, decreasing = TRUE)[1:4]
+
+
+top_genes <- data_filtered[top_6_indices, ]
+top_genes$Gene_Name <- rownames(top_genes) 
+
+
+plot_data <- top_genes %>%
+  pivot_longer(cols = -Gene_Name, names_to = "Sample", values_to = "Expression") %>%
+  # Create the Group column (1-50 = Control, 51-102 = Cancer)
+  mutate(Group = rep(c(rep("Control", 50), rep("Cancer", 52)), 4))
+
+```
+
+```{r, fig.width=5, fig.height=3, out.width="90%", fig.align='center', warning=FALSE}
+ggplot(plot_data, aes(x = Expression, fill = Group)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Gene_Name, scales = "free") +
+  theme_minimal() +
+  labs(
+    x = "Expression Level",
+    y = "Density"
+  ) +
+  scale_fill_manual(values = c("Control" = "turquoise3", "Cancer" = "tomato"))
+
+```
+ 
+
+
+
+### 1.2 Wilcoxon Rank-Sum test
+
+
+#### 1.2.2 Results of the Wilcoxon test
+
+
+
+```{r setup4, include=TRUE}
+group <- c(rep("Control", 50), rep("Cancer", ncol(data_filtered) - 50))
+
+
+# Initialize a vector to store p-values
+p_values <- numeric(nrow(data_filtered))
+log2fc <- numeric(nrow(data_filtered))
+
+# Loop through each gene
+for (i in 1:nrow(data_filtered)) {
+  gene_data <- as.numeric(data_filtered[i, ])
+  control_vals <- gene_data[1:50]
+  cancer_vals <- gene_data[51:102]
+  
+  # Wilcoxon Test
+  p_values[i] <- wilcox.test(control_vals, cancer_vals)$p.value
+  
+  # Calculate Log2 Fold Change
+  # We use mean of cancer minus mean of control because log(A/B) = log(A) - log(B)
+  log2fc[i] <- mean(cancer_vals, na.rm=TRUE) - mean(control_vals, na.rm=TRUE)
+}
+
+rawp <- p_values
+
+holm<-mt.rawp2adjp(rawp, proc=c("Holm"))
+bonf<-mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+bh<-mt.rawp2adjp(rawp, proc=c("BH"))
+by<-mt.rawp2adjp(rawp, proc=c("BY"))
+allp<-cbind(rawp, bonf$adjp[order(bonf$index),2],holm$adjp[order(holm$index),2],bh$adjp[order(bh$index),2],by$adjp[order(by$index),2])
+#mt.plot(allp,plottype="pvsr", proc=c("rawp","Bonferroni","Holm","BH","BY"),leg=c(2,0.95),lty=1,col=1:5,lwd=2)
+reject_mat <- mt.reject(cbind(rawp,bonf$adjp[order(bonf$index),2],holm$adjp[order(holm$index),2],bh$adjp[order(bh$index),2],by$adjp[order(by$index),2]),seq(0,1,0.05))$r
+
+reject_df <- as.data.frame(reject_mat)
+
+colnames(reject_df) <- c("", "Bonferroni", "Holm", "BH", "BY")
+```
+
+
+```{r, fig.width=5, fig.height=6, out.width="80%", fig.align='center'}
+par(mar = c(4, 4, 2, 1))  
+
+hist(p_values,
+     main = "Histogram of p-values",
+     xlab = "Value",
+     col = "skyblue")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+reject_subset <- reject_df[1:11, ]
+
+kable(
+  reject_subset,
+  align = "lcccc",
+  format = "html",
+  escape = TRUE
+) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 11
+  ) %>%
+  row_spec(0, bold = TRUE)
+```
+
+
+
+
+```{r setup5, include=TRUE, message=FALSE}
+# Create results table
+results <- data.frame(
+  Gene = rownames(data_filtered),
+  Log2FC = log2fc,
+  P_value = p_values,
+  FDR = p.adjust(p_values, method = "BH"),
+  holm_adj = p.adjust(p_values, method = "holm")
+)
+
+results <- results[order(results$FDR), ]
+#head(results, 10)
+
+
+
+results <- results %>%
+  mutate(Color = case_when(
+    FDR < 0.05 ~ "red",
+    TRUE ~ "black"
+  ))
+
+results1 <- results %>%
+  mutate(Significant = FDR < 0.05 & abs(Log2FC) > 0.75)
+```
+
+```{r, fig.width=9, fig.height=5, out.width="85%", fig.align='center'}
+ggplot(results, aes(x = Log2FC, y = -log10(P_value), color = Color)) +
+  geom_point(size = 3) +
+  scale_color_identity() +
+  labs(
+    x = "Log2 Fold Change",
+    y = "-log10(P-value)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none") +
+  
+  # BH (FDR) line
+  geom_hline(
+    yintercept = -log10(5.188407e-04),
+    linetype = "dashed",
+    color = "grey40"
+  ) +
+  
+  # Holm line
+  geom_hline(
+    yintercept = -log10(1.334055e-05),
+    linetype = "dotted",
+    color = "blue"
+  ) +
+  
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey")
+```
+
+
+ 
+
+```{r, fig.width=9, fig.height=5, out.width="85%", fig.align='center', warning=FALSE}
+ggplot(results1, aes(x = Log2FC, y = -log10(P_value))) +
+  geom_point(
+    aes(color = Significant),
+    size = 3,
+    alpha = 0.7
+  ) +
+  scale_color_manual(
+    values = c("TRUE" = "red", "FALSE" = "grey")
+  ) +
+  labs(
+    x = "Log2 Fold Change",
+    y = "-log10(P-value)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none") +
+  geom_hline(
+    yintercept = -log10(5.188407e-04),
+    linetype = "dashed",
+    color = "grey"
+  ) +
+  geom_vline(
+    xintercept = c(-0.75, 0.75),
+    linetype = "dashed",
+    color = "grey"
+  )
+```
+
+
+### 1.3 Differential expression with limma
+
+
+### 1.3.2 Limma results
+
+
+
+```{r setup6, include=TRUE}
+gr<-c(rep(0,50),rep(1,52))
+
+design <- cbind(rep(1,50),abs(gr-1))
+
+fit <- lmFit(data_filtered,design)
+#summary(fit)
+
+fit1 <- eBayes(fit)
+
+topTable <- topTable(fit1,number=nrow(data_filtered),coef=2)
+topTable <- topTable[order(topTable$adj.P.Val), ]
+#head(topTable, 10)
+
+
+
+topTable <- topTable %>%
+  mutate(Color = case_when(
+    adj.P.Val < 0.05 ~ "red",
+    TRUE ~ "black"
+  ))
+
+
+limma_genes <- rownames(topTable[topTable$adj.P.Val <= 0.05, ])
+
+wilcox_genes <- rownames(results[results$FDR < 0.05, ])
+
+```
+
+```{r, fig.width=9, fig.height=5, out.width="85%", fig.align='center'}
+ggplot(topTable, aes(x = logFC, y = -log10(P.Value), color = Color)) +
+  geom_point(size = 3) +
+  scale_color_identity() +  
+  labs(
+    x = "Log2 Fold Change",
+    y = "-log10(P-value)"
+  ) +
+  theme_minimal(base_size = 14) +
+  geom_hline(yintercept = -log10(2.143806e-04), linetype="dashed", color="grey") +
+  geom_vline(xintercept = 0, linetype="dashed", color="grey")
+```
+

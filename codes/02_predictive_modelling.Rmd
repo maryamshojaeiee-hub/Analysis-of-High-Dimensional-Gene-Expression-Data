@@ -1,0 +1,276 @@
+---
+title: "02_predictive_modelling"
+author: "Maryam Shojaei Shahrokhabadi"
+date: "2026-01-07"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, error=FALSE}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(UpSetR)
+library(patchwork)
+library(ggplotify)
+library(gridExtra)
+library(grid)
+library(knitr)
+library(kableExtra)
+library(Biobase)
+library(multtest, verbose = FALSE)
+library(limma)
+library(CMA)
+library(e1071)
+library(glmnet)
+library(randomForest)
+library(clusterGenomics)
+```
+
+
+```{r setup1, include=TRUE}
+data_filtered <- read.csv("http://web.stanford.edu/~hastie/CASI_files/DATA/prostmat.csv")
+
+gene_data <- data.frame(Expression = as.numeric(data_filtered[10, ]),
+                        Group = c(rep("Control", 50), rep("Cancer", 52)))
+
+```
+
+
+
+
+
+```{r setup7, include=TRUE}
+load("data/leukdata.RData")
+
+```
+
+
+
+## 2. Gene-Specific Logistic Regression
+
+
+### 2.2 Ranking the Genes
+
+
+
+```{r setup8, include=TRUE, warning=FALSE}
+ngenes<-length(leukdata[,1])
+
+t.t<-p.val<-c(1:ngenes)
+
+## t test ##
+classlabel<-c(rep(0,47),rep(1,25))
+for(i in 1:ngenes)
+{	
+  xi<-leukdata[i,]
+  modi<-glm(classlabel~xi,binomial(link = "logit"))
+  t.t[i]<-summary(modi)$coefficients[2,3]
+  p.val[i]<-summary(modi)$coefficients[2,4]
+}
+
+```
+
+```{r, fig.width=5, fig.height=3, out.width="70%", fig.align='center', warning=FALSE}
+
+hist(p.val, nclass = 50, main = "Histogram of P-values")
+```
+
+
+```{r, fig.width=10, fig.height=6}
+par(mfrow = c(2, 2), mar = c(3, 3, 2, 1))
+
+ngenes <- nrow(leukdata)
+index <- 1:ngenes
+index1 <- index[order(p.val)]
+
+for (k in 1:4) {
+  kk <- index1[k]
+  xk <- leukdata[kk,]
+  
+  modk <- glm(classlabel ~ xk, binomial(link = "logit"))
+  
+  plot(xk, classlabel,
+       xlab = "Gene expression",
+       ylab = "AML (1) / ALL (0)",
+       main = paste("Gene", kk))
+  
+  lines(sort(xk),
+        modk$fit[order(xk)],
+        col = "red", lwd = 2)
+}
+
+par(mfrow = c(1,1))
+```
+
+
+
+### 2.3 Prediction and Performance
+
+
+```{r setup9, include=TRUE}
+top4 <- index1[1:4]  # indices of top 4 genes
+
+# Create results table
+results_p <- data.frame(Gene = top4,
+                      P_value = NA,
+                      MCE = NA,
+                      Sensitivity = NA,
+                      Specificity = NA)
+
+# Loop over each top gene
+for (i in 1:4) {
+  kk <- top4[i]
+  xk <- leukdata[kk,]
+  
+  # Fit gene-specific logistic regression
+  modk <- glm(classlabel ~ xk, family = binomial())
+  
+  # Predicted probability
+  prob <- predict(modk, type = "response")
+  
+  # Classify with threshold 0.5
+  yhat <- ifelse(prob >= 0.5, 1, 0)
+  
+  # Confusion matrix
+  tab <- table(True = classlabel, Pred = yhat)
+  
+  # Misclassification Error
+  MCE <- mean(yhat != classlabel)
+  
+  # Sensitivity (AML)
+  Sens <- tab["1","1"] / sum(tab["1",])
+  
+  # Specificity (ALL)
+  Spec <- tab["0","0"] / sum(tab["0",])
+  
+  # Extract p-value of gene effect
+  Pval <- summary(modk)$coefficients[2,4]
+  
+  # Store in results
+  results_p$P_value[i] <- Pval
+  results_p$MCE[i] <- MCE
+  results_p$Sensitivity[i] <- Sens
+  results_p$Specificity[i] <- Spec
+}
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+reject_subset <- results_p
+
+reject_subset$P_value <- formatC(
+  reject_subset$P_value,
+  format = "e",
+  digits = 2
+)
+
+kable(
+  reject_subset,
+  align = "lcccc",
+  format = "html",
+  escape = TRUE
+) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 11
+  ) %>%
+  row_spec(0, bold = TRUE)
+```
+
+
+
+## 3. Supervised Principal Components (SPCA)
+
+
+
+```{r setup10, include=TRUE}
+K = 10
+index <- 1:ngenes
+index1 <- index[order(p.val)]
+index2<-index1[1:K]
+
+data.R<-leukdata[index2,]
+
+pc.cr <- princomp(t(data.R),scores=TRUE,cor = TRUE)
+```
+
+### 3.3 Results
+
+
+
+```{r, fig.width=8, fig.height=5, out.width="70%", fig.align='center'}
+plot(pc.cr)
+```
+
+
+```{r, fig.width=9, fig.height=5, out.width="85%", fig.align='center', warning=FALSE}
+Ux1<-as.vector(pc.cr$scores[,1])
+Ux2<-as.vector(pc.cr$scores[,2])
+
+
+xk<-Ux1
+modk<-glm(classlabel~xk,binomial(link = "logit"))
+plot(xk,classlabel)
+lines(sort(xk),modk$fit[order(xk)],lwd=3,col=2)
+abline(h = 0.5, col = "black", lty = 2)
+
+```
+
+
+```{r setup11, include=TRUE}
+results_pca <- data.frame(Feature = "PC1",
+                        MCE = NA,
+                        Sensitivity = NA,
+                        Specificity = NA)
+  # Fit gene-specific logistic regression
+  modk <- glm(classlabel ~ xk, family = binomial())
+  
+  # Predicted probability
+  prob <- predict(modk, type = "response")
+  
+  # Classify with threshold 0.5
+  yhat <- ifelse(prob >= 0.5, 1, 0)
+  
+  # Confusion matrix
+  tab <- table(True = classlabel, Pred = yhat)
+  
+  # Misclassification Error
+  MCE <- mean(yhat != classlabel)
+  
+  # Sensitivity (AML)
+  Sens <- tab["1","1"] / sum(tab["1",])
+  
+  # Specificity (ALL)
+  Spec <- tab["0","0"] / sum(tab["0",])
+  
+  results_pca$MCE <- MCE
+  results_pca$Sensitivity <- Sens
+  results_pca$Specificity <- Spec
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+kable(
+  results_pca,
+  align = "lccc",      
+  booktabs = TRUE,      
+  digits = 2             # round numeric columns
+) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    full_width = FALSE,
+    font_size = 11
+  ) %>%
+  row_spec(0, bold = TRUE)
+```
+

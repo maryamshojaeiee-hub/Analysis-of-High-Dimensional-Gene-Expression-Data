@@ -1,0 +1,249 @@
+---
+title: "04_cluster_analysis"
+author: "Maryam Shojaei Shahrokhabadi"
+date: "2026-01-07"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, error=FALSE}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(UpSetR)
+library(patchwork)
+library(ggplotify)
+library(gridExtra)
+library(grid)
+library(knitr)
+library(kableExtra)
+library(Biobase)
+library(multtest, verbose = FALSE)
+library(limma)
+library(CMA)
+library(e1071)
+library(glmnet)
+library(randomForest)
+library(clusterGenomics)
+```
+
+
+```{r setup1, include=TRUE}
+data_filtered <- read.csv("http://web.stanford.edu/~hastie/CASI_files/DATA/prostmat.csv")
+
+gene_data <- data.frame(Expression = as.numeric(data_filtered[10, ]),
+                        Group = c(rep("Control", 50), rep("Cancer", 52)))
+
+```
+
+
+
+```{r setup7, include=TRUE}
+load("data/leukdata.RData")
+
+```
+
+
+
+## 3. Results
+
+### 3.1 Data Exploration
+
+
+```{r setup26, include=TRUE}
+gene_vars <- apply(leukdata, 1, var)
+top_indices <- order(gene_vars, decreasing = TRUE)[1:100]
+hvg_data <- leukdata[top_indices, ]
+pca_input <- t(hvg_data)
+
+# Perform PCA
+pca_result <- prcomp(pca_input, scale. = TRUE)
+
+pve <- summary(pca_result)$importance[2, 1:2] * 100 
+
+classlabel<-c(rep(0,47),rep(1,25))
+
+pca_df <- data.frame(PC1 = pca_result$x[,1],
+                     PC2 = pca_result$x[,2],
+                     Cluster = factor(classlabel))
+
+
+```
+
+
+```{r, fig.width=6, fig.height=6, out.width="90%", fig.align='center'}
+pca_input1 <- t(leukdata)
+
+pca_result1 <- prcomp(pca_input1, scale. = TRUE)  
+
+pve1 <- summary(pca_result1)$importance[2, 1:2] * 100  
+
+classlabel<-c(rep(0,47),rep(1,25))
+pca_df1 <- data.frame(PC1 = pca_result1$x[,1],
+                     PC2 = pca_result1$x[,2],
+                     Cluster = factor(classlabel))  
+
+ggplot(pca_df1, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1 (", round(pve[1],1), "%)")) +
+  ylab(paste0("PC2 (", round(pve[2],1), "%)")) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+```
+ 
+
+```{r, fig.width=6, fig.height=6, out.width="90%", fig.align='center'}
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1 (", round(pve[1],1), "%)")) +
+  ylab(paste0("PC2 (", round(pve[2],1), "%)")) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+```
+
+### 3.2 Number of Clusters
+
+
+
+
+```{r setup24, include=TRUE}
+
+set.seed(123)
+res <- gap(t(hvg_data),cl.method="hclust",dist.method="euclidean",linkage="ave",
+           Kmax=15,B=500)
+```
+
+
+```{r, fig.width=8, fig.height=4}
+par(mfrow = c(1, 2), mar = c(5, 5, 2, 1))  
+
+
+xx <- diff(res$gap)
+sdk.1 <- res$sk[-1]
+
+plot(xx - sdk.1,
+     ylab = "Gap(k+1) - Gap(k) - S_k+1", 
+     xlab = "k",
+     cex.lab = 1.2,
+     font.lab = 1,
+     cex.axis = 1)
+abline(h = 0, col = "red", lty = 2)  
+
+
+plot(1:length(res$gap), res$gap,
+     type = "b",
+     ylim = c(min(res$gap - res$sk), max(res$gap + res$sk)),
+     pch = 19,
+     xlab = "k",       
+     ylab = "Gap Statistic ± SE",           
+     cex.lab = 1.2,                         
+     font.lab = 1,                          
+     cex.axis = 1)                           
+
+points(1:length(res$sk), res$gap + res$sk, cex = 0.7, pch = 8)
+points(1:length(res$sk), res$gap - res$sk, cex = 0.7, pch = 8)
+segments(x0 = 1:length(res$sk),
+         y0 = res$gap - res$sk,
+         y1 = res$gap + res$sk)
+
+
+par(mfrow = c(1,1))
+```
+
+
+
+## Hierarchical clustering
+```{r setup25, include=TRUE}
+
+a1 <- dist(t(hvg_data), method="euclidean",diag=TRUE, upper=TRUE)
+hc1 <- hclust(a1, method="ave")
+
+```
+
+
+
+```{r, fig.width=8, fig.height=4}
+par(mfrow = c(1,1))
+plot(hc1, labels = 1:ncol(hvg_data), cex = 0.7,                  
+     main = "", xlab = "Sample ID", ylab = "Height") 
+rect.hclust(hc1, k = 2, border = c("red", "blue"))
+```
+
+
+## K-means clustering
+
+
+
+```{r, fig.width=5, fig.height=4, out.width="70%", fig.align='center'}
+km_out <- kmeans(t(hvg_data), centers = 2, nstart = 25)
+
+
+pca_dfk <- data.frame(
+  PC1 = pca_result$x[,1],
+  PC2 = pca_result$x[,2],
+  Cluster = factor(km_out$cluster)
+)
+
+```
+
+```{r, fig.width=7, fig.height=7, out.width="90%", fig.align='center'}
+ggplot(pca_dfk, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(size = 3, alpha = 0.8) +
+  xlab(paste0("PC1 (", round(pve[1],1), "%)")) +
+  ylab(paste0("PC2 (", round(pve[2],1), "%)")) +
+  theme_minimal() +
+  scale_color_manual(values = c("1" = "blue", "2" = "red")) 
+```
+
+
+```{r, fig.width=7, fig.height=7, out.width="90%", fig.align='center'}
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1 (", round(pve[1],1), "%)")) +
+  ylab(paste0("PC2 (", round(pve[2],1), "%)")) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+```
+
+
+### 3.5 Comparison with the True Leukemia Types
+
+
+
+
+```{r comparison-table}
+## Comparing clusters to true groups
+
+# K-means cluster assignments
+tab_km <- table(km_out$cluster, classlabel)
+
+# Hierarchical cluster assignments
+hc_clusters <- cutree(hc1, k = 2)
+tab_hc <- table(hc_clusters, classlabel)
+
+# Comparison table
+comparison <- data.frame(
+  Method = c("K-means", "K-means", "Hierarchical", "Hierarchical"),
+  Cluster = c(
+    paste("Cluster", rownames(tab_km)),
+    paste("Cluster", rownames(tab_hc))
+  ),
+  ALL = c(tab_km[, "0"], tab_hc[, "0"]),
+  AML = c(tab_km[, "1"], tab_hc[, "1"])
+)
+
+# Display table
+kable(comparison, align = "c") %>%
+  kable_styling(full_width = FALSE) %>%
+  collapse_rows(columns = 1, valign = "middle")
+```
+
+

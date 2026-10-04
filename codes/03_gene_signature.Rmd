@@ -1,0 +1,428 @@
+---
+title: "03_gene_signature"
+author: "Maryam Shojaei Shahrokhabadi"
+date: "2026-01-07"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, error=FALSE}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(UpSetR)
+library(patchwork)
+library(ggplotify)
+library(gridExtra)
+library(grid)
+library(knitr)
+library(kableExtra)
+library(Biobase)
+library(multtest, verbose = FALSE)
+library(limma)
+library(CMA)
+library(e1071)
+library(glmnet)
+library(randomForest)
+library(clusterGenomics)
+```
+
+```{r setup1, include=TRUE}
+data_filtered <- read.csv("http://web.stanford.edu/~hastie/CASI_files/DATA/prostmat.csv")
+
+gene_data <- data.frame(Expression = as.numeric(data_filtered[10, ]),
+                        Group = c(rep("Control", 50), rep("Cancer", 52)))
+
+```
+
+
+```{r setup7, include=TRUE}
+load("data/leukdata.RData")
+
+```
+
+
+
+
+
+## 2. Preliminary Analysis: How Many Genes Differ?
+
+```{r setup20, include=TRUE, warning=FALSE}
+ngenes<-length(leukdata[,1])
+
+log2fc <-t.t<-p.val<-c(1:ngenes)
+
+## t test ##
+classlabel<-c(rep(0,47),rep(1,25))
+for(i in 1:ngenes)
+{	
+  xi<-leukdata[i,]
+  modi<-glm(classlabel~xi,binomial(link = "logit"))
+  t.t[i]<-summary(modi)$coefficients[2,3]
+  p.val[i]<-summary(modi)$coefficients[2,4]
+  mean_class1 <- mean(xi[classlabel == 1])
+  mean_class0 <- mean(xi[classlabel == 0])
+  log2fc[i] <- mean_class1 - mean_class0
+}
+
+rawp <- p.val
+
+holm<-mt.rawp2adjp(rawp, proc=c("Holm"))
+bonf<-mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+bh<-mt.rawp2adjp(rawp, proc=c("BH"))
+by<-mt.rawp2adjp(rawp, proc=c("BY"))
+allp<-cbind(rawp, bonf$adjp[order(bonf$index),2],holm$adjp[order(holm$index),2],bh$adjp[order(bh$index),2],by$adjp[order(by$index),2])
+#mt.reject(cbind(rawp,bonf$adjp[order(bonf$index),2],holm$adjp[order(holm$index),2],bh$adjp[order(bh$index),2],by$adjp[order(by$index),2]),seq(0,1,0.05))$r
+
+
+results <- data.frame(
+  Gene = seq_len(nrow(leukdata)),
+  Log2FC = log2fc,
+  t.t= t.t,
+  P_value = p.val,
+  FDR = p.adjust(p.val, method = "BH"),
+  holm_adj = p.adjust(p.val, method = "holm")
+)
+
+results <- results[order(results$FDR), ]
+results <- results %>%
+  mutate(Color = case_when(
+    FDR < 0.05 ~ "red",
+    TRUE ~ "black"
+  ))
+```
+
+
+
+
+```{r, fig.width=10, fig.height=6}
+ggplot(results, aes(x = Log2FC, y = -log10(P_value), color = Color)) +
+  geom_point(size = 3) +
+  scale_color_identity() +  
+  labs(
+    x = "Log2 Fold Change",
+    y = "-log10(P-value)"
+  ) +
+  theme_minimal(base_size = 14) +
+  geom_vline(xintercept = 0, linetype="dashed", color="grey")
+```
+
+
+## 3. Methods
+
+
+
+### 3.2 Validation Strategy
+
+The analysis was repeated for signature sizes of $K = 5, 10, \dots, 45$ genes.
+
+
+```{r setup21, include=TRUE,echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+leukdata <- t(leukdata)
+classlabel<-c(rep(0,47),rep(1,25))
+ntrain = floor(2/3 * length(classlabel))
+#validation startegy :MCC
+mccv <- GenerateLearningsets(y=classlabel, method = "MCCV", niter=100, ntrain=ntrain)
+
+#Feature selection methods:
+genesel <- c("t.test")
+
+# different numbers of features
+ngene <- c(5,10,15,20,25,30,35,40,45)
+
+NG<-length(ngene)
+
+eva.rf <- eva.dlda <- eva.lasso <- eva.lda <-  eva.svm <-matrix(0,3,NG)
+for(j in 1:NG) {
+  #LDA
+  result.lda <- classification(leukdata, classlabel, learningsets = mccv,
+                              genesellist = list(method = "t.test" ), classifier = ldaCMA,
+                               nbgene = ngene[j])
+  MCE <- evaluation(result.lda,measure = c("misclassification"))
+  SPE <- evaluation(result.lda,measure = c("specificity"))
+  SEN <- evaluation(result.lda,measure = c("sensitivity"))
+  eva.lda[1,j] <- mean(attributes(MCE)$score)
+  eva.lda[2,j] <- mean(attributes(SPE)$score)
+  eva.lda[3,j] <- mean(attributes(SEN)$score)
+  
+  #DLDA
+  result.dlda <- classification(leukdata, classlabel, learningsets = mccv,
+                                genesellist = list(method = "t.test" ), classifier = dldaCMA,
+                                nbgene = ngene[j])
+  MCE <- evaluation(result.dlda,measure = c("misclassification"))
+  SPE <- evaluation(result.dlda,measure = c("specificity"))
+  SEN <- evaluation(result.dlda,measure = c("sensitivity"))
+  eva.dlda[1,j] <- mean(attributes(MCE)$score)
+  eva.dlda[2,j] <- mean(attributes(SPE)$score)
+  eva.dlda[3,j] <- mean(attributes(SEN)$score)
+  
+  #SVM
+  result.svm <- classification(leukdata, classlabel, learningsets = mccv,
+                               genesellist = list(method = "t.test" ), classifier = svmCMA,
+                               nbgene = ngene[j])
+  MCE <- evaluation(result.svm,measure = c("misclassification"))
+  SPE <- evaluation(result.svm,measure = c("specificity"))
+  SEN <- evaluation(result.svm,measure = c("sensitivity"))
+  eva.svm[1,j] <- mean(attributes(MCE)$score)
+  eva.svm[2,j] <- mean(attributes(SPE)$score)
+  eva.svm[3,j] <- mean(attributes(SEN)$score)
+  
+  #Lasso
+  result.lasso <- classification(leukdata, classlabel, learningsets = mccv,
+                                 genesellist = list(method = "t.test" ), classifier = LassoCMA,
+                                 nbgene = ngene[j])
+  MCE <- evaluation(result.lasso,measure = c("misclassification"))
+  SPE <- evaluation(result.lasso,measure = c("specificity"))
+  SEN <- evaluation(result.lasso,measure = c("sensitivity"))
+  eva.lasso[1,j] <- mean(attributes(MCE)$score)
+  eva.lasso[2,j] <- mean(attributes(SPE)$score)
+  eva.lasso[3,j] <- mean(attributes(SEN)$score)
+  
+  #RF
+  result.rf <- classification(leukdata, classlabel, learningsets = mccv,
+                              genesellist = list(method = "t.test" ), classifier = rfCMA,
+                              nbgene = ngene[j])
+  MCE <- evaluation(result.rf,measure = c("misclassification"))
+  SPE <- evaluation(result.rf,measure = c("specificity"))
+  SEN <- evaluation(result.rf,measure = c("sensitivity"))
+  eva.rf[1,j] <- mean(attributes(MCE)$score)
+  eva.rf[2,j] <- mean(attributes(SPE)$score)
+  eva.rf[3,j] <- mean(attributes(SEN)$score)
+}
+
+
+
+df_MCE <- data.frame(
+  ngene = ngene,
+  LDA  = eva.lda[1,],
+  DLDA  = eva.dlda[1,],
+  SVM   = eva.svm[1,],
+  LASSO = eva.lasso[1,],
+  RF    = eva.rf[1,]
+)
+
+
+
+##specificity
+df_sen <- data.frame(
+  ngene = ngene,
+  LDA  = eva.lda[3,],
+  DLDA  = eva.dlda[3,],
+  SVM   = eva.svm[3,],
+  LASSO = eva.lasso[3,],
+  RF    = eva.rf[3,]
+)
+
+df_spec <- data.frame(
+  ngene = ngene,
+  LDA  = eva.lda[2,],
+  DLDA  = eva.dlda[2,],
+  SVM   = eva.svm[2,],
+  LASSO = eva.lasso[2,],
+  RF    = eva.rf[2,]
+)
+
+```
+
+## 4. Results
+
+### 4.1 Effect of Signature Size and Method
+
+
+```{r, fig.width=8, fig.height=4}
+df_MCE_long <- df_MCE %>%
+  pivot_longer(cols = -ngene, names_to = "Method", values_to = "Value") %>%
+  mutate(Metric = "Misclassification Error")
+
+df_spec_long <- df_spec %>%
+  pivot_longer(cols = -ngene, names_to = "Method", values_to = "Value") %>%
+  mutate(Metric = "Specificity")
+
+df_sen_long <- df_sen %>%
+  pivot_longer(cols = -ngene, names_to = "Method", values_to = "Value") %>%
+  mutate(Metric = "Sensitivity")
+
+# Combine all
+df_all <- bind_rows(df_MCE_long, df_spec_long, df_sen_long)
+
+# Plot side by side using facet_wrap
+ggplot(df_all, aes(x = ngene, y = Value, color = Method, shape = Method)) +
+  geom_line() +
+  geom_point(size = 1.5) +
+  xlab("Number of Genes") +
+  ylab("Value") +
+  facet_wrap(~ Metric, scales = "free_y") +  # one plot per Metric
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face="bold")
+  )
+
+```
+
+### 4.2 The Final Gene Signature
+
+
+```{r setup22, include=TRUE, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+selttest.mccv <- GeneSelection(leukdata, classlabel, learningsets = mccv, method = "t.test")
+
+
+niter <- 100
+all_genes <- c()
+
+
+for(i in 1:niter){
+  
+  top30 <- toplist(selttest.mccv, k = 30, iter = i)
+  
+  all_genes <- c(all_genes, top30$index)
+}
+
+gene_freq <- table(all_genes)
+
+gene_freq <- sort(gene_freq, decreasing = TRUE)
+
+threshold <- ceiling(niter * 0.5)
+final_genes <- names(gene_freq[gene_freq >= threshold])
+
+df_plot <- as.data.frame(gene_freq)
+colnames(df_plot) <- c("Gene", "Frequency")
+  
+
+df_plot$Color <- ifelse(df_plot$Gene %in% final_genes, "red", "black")
+  
+
+df_plot <- df_plot[order(df_plot$Frequency, decreasing = TRUE), ]
+```
+
+
+```{r, fig.width=10, fig.height=5}
+ggplot(df_plot, aes(x = reorder(Gene, Frequency), y = Frequency, fill = Color)) +
+  geom_bar(stat = "identity", width = 0.5) + 
+  scale_fill_identity() +
+  xlab("Gene") +
+  ylab("Frequency") +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 4)
+  )
+
+```
+
+
+### 4.3 Performance of the Final Signature
+
+
+```{r setup23, include=TRUE, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+leukdata <- t(leukdata)
+final_genes_numeric <- as.numeric(final_genes)
+
+final_data <- leukdata[final_genes_numeric, ]
+final_data <- t(final_data)
+
+
+eva.rf <- eva.dlda <- eva.lasso <- eva.lda <- eva.svm <- matrix(0, 3, 1)
+
+ntrain <- floor(2/3 * length(classlabel))
+mccv <- GenerateLearningsets(y=classlabel, method="MCCV", niter=100, ntrain=ntrain)
+
+# LDA
+result.lda <- classification(final_data, classlabel, learningsets = mccv,
+                             genesellist = list(method = "t.test"), 
+                             classifier = ldaCMA,
+                             nbgene = length(final_genes))
+MCE <- evaluation(result.lda, measure="misclassification")
+SPE <- evaluation(result.lda, measure="specificity")
+SEN <- evaluation(result.lda, measure="sensitivity")
+eva.lda[,1] <- c(mean(attributes(MCE)$score),
+                 mean(attributes(SPE)$score),
+                 mean(attributes(SEN)$score))
+
+# DLDA
+result.dlda <- classification(final_data, classlabel, learningsets = mccv,
+                              genesellist = list(method="t.test"), 
+                              classifier = dldaCMA,
+                              nbgene = length(final_genes))
+MCE <- evaluation(result.dlda, measure="misclassification")
+SPE <- evaluation(result.dlda, measure="specificity")
+SEN <- evaluation(result.dlda, measure="sensitivity")
+eva.dlda[,1] <- c(mean(attributes(MCE)$score),
+                  mean(attributes(SPE)$score),
+                  mean(attributes(SEN)$score))
+
+# SVM
+result.svm <- classification(final_data, classlabel, learningsets = mccv,
+                             genesellist = list(method="t.test"),
+                             classifier = svmCMA,
+                             nbgene = length(final_genes))
+MCE <- evaluation(result.svm, measure="misclassification")
+SPE <- evaluation(result.svm, measure="specificity")
+SEN <- evaluation(result.svm, measure="sensitivity")
+eva.svm[,1] <- c(mean(attributes(MCE)$score),
+                 mean(attributes(SPE)$score),
+                 mean(attributes(SEN)$score))
+
+# LASSO
+result.lasso <- classification(final_data, classlabel, learningsets = mccv,
+                               genesellist = list(method="t.test"),
+                               classifier = LassoCMA,
+                               nbgene = length(final_genes))
+MCE <- evaluation(result.lasso, measure="misclassification")
+SPE <- evaluation(result.lasso, measure="specificity")
+SEN <- evaluation(result.lasso, measure="sensitivity")
+eva.lasso[,1] <- c(mean(attributes(MCE)$score),
+                   mean(attributes(SPE)$score),
+                   mean(attributes(SEN)$score))
+
+# Random Forest
+result.rf <- classification(final_data, classlabel, learningsets = mccv,
+                            genesellist = list(method="t.test"),
+                            classifier = rfCMA,
+                            nbgene = length(final_genes))
+MCE <- evaluation(result.rf, measure="misclassification")
+SPE <- evaluation(result.rf, measure="specificity")
+SEN <- evaluation(result.rf, measure="sensitivity")
+eva.rf[,1] <- c(mean(attributes(MCE)$score),
+                mean(attributes(SPE)$score),
+                mean(attributes(SEN)$score))
+
+```
+
+
+```{r, fig.width=8, fig.height=4}
+results_table <- data.frame(
+  Metric = c("MCE", "Specificity", "Sensitivity"),
+  LDA   = eva.lda[,1],
+  DLDA  = eva.dlda[,1],
+  SVM   = eva.svm[,1],
+  LASSO = eva.lasso[,1],
+  RF    = eva.rf[,1]
+)
+
+
+results_table[, -1] <- lapply(results_table[, -1], function(x) formatC(x, format = "f", digits = 2))
+
+
+kable(
+  results_table,
+  align = "lcccccc",      
+  booktabs = TRUE,
+) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    full_width = FALSE,
+    font_size = 11
+  ) %>%
+  row_spec(0, bold = TRUE)  
+
+
+```
+
